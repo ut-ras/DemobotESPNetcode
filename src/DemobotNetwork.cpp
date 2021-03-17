@@ -28,7 +28,7 @@ DemobotNetwork::DemobotNetwork(const DemobotID ID) {
     credentialsLog = new Credential[numCredentials] {
         Credential{"Demobot", "Demobots1234"},
         Credential{"DemobotsNetwork", "Dem0b0tsRu1e!"},
-        Credential{"DHWN6", "5JKYG5R78PVCVHN2"},
+        Credential{"", ""},
         Credential{"", ""}
     };
 
