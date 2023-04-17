@@ -1,190 +1,145 @@
 /**
- * File: DemobotNetwork.cpp
- * Author: Matthew Yu
- * Last Modified: 03/16/21
- * Project: Demobots General
- * Organization: UT IEEE RAS
- * Description: Implements definitions for the DemobotNetwork class, which
- * allows users to identify, setup, and connect a robot to the network given
- * some credentials.
+ * @file DemobotNetwork.cpp
+ * @author Matthew Yu (matthewjkyu@gmail.com)
+ * @brief Manages network configuration for various Demobots.
+ * @version 0.2.0
+ * @date 2023-04-10
+ * @copyright Copyright (c) 2023
+ *
  */
-#include "DemobotNetwork.h"
+#include "DemobotNetwork.hpp"
+#include <ArduinoLog.h>
+#include <WiFi.h>
 
-
-/** Redirect any traffic with an unknown address to here. */
-IPAddress gateway(192,168,1,1);
-
-/** 255-245-1 = 9 allowed IP addresses on the subnet. */
-IPAddress subnet(255,255,0,0);
-
-/** Optional Domain Name Systems. */
-IPAddress primaryDNS(8, 8, 8, 8);
-IPAddress secondaryDNS(8, 8, 4, 4);
-
-/** Public methods. */
-
-DemobotNetwork::DemobotNetwork(const DemobotID ID) {
-    /* Generate possible network credentials. */
-    credentialsLog = new Credential[numCredentials] {
+DemobotNetwork::DemobotNetwork(const char *demobot_name, DemobotID id) {
+    Log.trace("[DemobotNetwork]");
+    _credentials_log = new Credential[_num_credentials] {
         Credential{"Demobot", "Demobots1234"},
         Credential{"DemobotsNetwork", "Dem0b0tsRu1e!"},
         Credential{"", ""},
-        Credential{"", ""}
+        Credential{"", ""},
     };
 
-    /* Set server IP based on robot ID. */
-    switch(ID) {
-        case DANCEBOT_1:
-        case DANCEBOT_2:
-        case DANCEBOT_3:
-        case DANCEBOT_4:
-        case DANCEBOT_5:
-        case MOTHERSHIP:
-            _ipAddress = IPAddress(192,168,2,1);
-            break;
-        case POLARGRAPH:
-            _ipAddress = IPAddress(192,168,2,2);
-            break;
-        case MARQUEE:
-            _ipAddress = IPAddress(192,168,2,3);
-            break;
-        case TOWER_OF_POWER:
-            _ipAddress = IPAddress(192,168,2,4);
-            break;
-        default:
-            _ipAddress = IPAddress(192,168,2,0);
-            break;
-    }
+    _demobot_name = const_cast<char*>(demobot_name);
+    Log.trace("\tHello robot %s (%u)!", _demobot_name, id);
 
-    /* Set credentials. */
-    reconfigureNetworks();
-}
+    WiFi.setHostname(_demobot_name);
 
-void DemobotNetwork::reconfigureNetworks() {
-    if (!getNetwork()) {
-        /* Upon failure to find a relevant network, take the first entry of the
-         * credentials log and use it to start its own. */
-        _SSID = const_cast<char*>(credentialsLog[0].SSID);
-        _PASSWORD = const_cast<char*>(credentialsLog[0].PASSWORD);
-        _mode = AP;
-        Serial.println("Network configured for AP mode.");
+    /* Set internal SSID and password based on available networks. */
+    if (get_available_network((char **)&_ssid, (char **)&_pass)) {
+        Log.trace("\tFound matching available network: %s.", _ssid);
+        Log.trace("\tNetwork configured for STA mode.");
     } else {
-        _mode = STA;
-        Serial.println("Network configured for STA mode.");
+        /* Take the first entry (assuming that it's filled) of the credentials log. */
+        _ssid = const_cast<char*>(_credentials_log[0].SSID);
+        _pass = const_cast<char*>(_credentials_log[0].PASS);
+
+        Log.trace(
+            "\tNo matching available networks found. "
+            "Defaulting to the first entry in the credentials log: %s.", _ssid
+        );
+        Log.trace("\tNetwork configured for AP mode.");
     }
 }
 
-bool DemobotNetwork::connectNetwork() {
-    /* Don't attempt to connect without valid credentials. */
-    if (_SSID == nullptr || _PASSWORD == nullptr) return false;
-
-    if (_mode == AP) { /* Access Point mode. */
-        Serial.println("Connecting via AP mode.");
-
-        /* Configure IP. */
-        if (!WiFi.softAPConfig(_ipAddress, gateway, subnet)) {
-            Serial.println("AP failed to configure.");
-        }
-
-        /* Set up our own access point. */
-        WiFi.mode(WIFI_AP);
-        if (!WiFi.softAP(_SSID, _PASSWORD)) {
-            Serial.println("AP failed to start.");
-        }
-
-        Serial.print("Connected to network ");
-        Serial.println(_SSID);
-        Serial.print("With IP address ");
-        Serial.println(WiFi.softAPIP());
-    } else { /* Station mode. */
-        Serial.println("Connecting via STA mode.");
-
-        /* Configure IP. */
-        if (!WiFi.config(_ipAddress, gateway, subnet, primaryDNS, secondaryDNS)) {
-            Serial.println("STA failed to configure.");
-        }
-
-        /* Connect to another network in station mode. */
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(_SSID, _PASSWORD);
-
-        /* Poll until we get connected or get a connection failure. */
-        int retry = 0;
-        while (WiFi.status() != WL_CONNECTED) {
-            /* In WL_IDLE_STATUS of WL_CONNECT_FAILED. */
-            if (WiFi.status() == WL_CONNECT_FAILED) {
-                retry++;
-                if (retry < RETRY_AMOUNT) break;
-                else {
-                    Serial.println("STA failed to start 3 times.");
-                    return false;
-                }
-            }
-            delay(RETRY_WAIT);
-        }
-
-        /* If we're connected, jump out. */
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.print("Connected to network ");
-            Serial.println(_SSID);
-            Serial.print("With IP address ");
-            Serial.println(WiFi.localIP());
-        }
+bool DemobotNetwork::setup_network(void) {
+    Log.trace("[setup_network]");
+    if ((_ssid == nullptr) || (_pass == nullptr)) {
+        Log.trace("\tNo network credentials have been set and thus we cannot setup a network.");
+        return false;
     }
 
-    return true;
+    Log.trace("\tSetting up our AP network at: %s", _ssid);
+    if (WiFi.softAP(_ssid, _pass)) {
+        Log.trace("\tNetwork set up.");
+        return true;
+    } else {
+        Log.trace("\tFailed to set up network.");
+        return false;
+    }
 }
 
-void DemobotNetwork::disconnectNetwork() {
+bool DemobotNetwork::connect_network(void) {
+    Log.trace("[connect_network]");
+    /* If we never found a network with credentials, don't attempt to connect. */
+    if (_ssid == nullptr || _pass == nullptr) {
+        Log.trace("\tNo network credentials have been set and thus we cannot connect to a network.");
+        return false;
+    }
+
+    Log.trace("\tConnecting to %s.", _ssid);
+    WiFi.begin(_ssid, _pass);
+
+    /* Poll until we get connected or timeout. */
+    int retry = 0;
+    do {
+        Serial.print(".");
+        ++retry;
+        if (retry > RETRY_AMOUNT) break;
+        delay(RETRY_WAIT);
+    } while (WiFi.status() != WL_CONNECTED);
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Log.trace("\tConnected to the network.");
+        return true;
+    } else {
+        Log.trace("\tFailed to connect to the network.");
+        return false;
+    }
+}
+
+void DemobotNetwork::disconnect_network(void) {
+    Log.trace("[disconnect_network]");
     WiFi.disconnect();
 }
 
-char* DemobotNetwork::getNetworkSSID() const {
-    return _SSID;
+int DemobotNetwork::get_network_status(void) const {
+    Log.trace("[get_network_status]");
+    return WiFi.status();
 }
 
-char* DemobotNetwork::getNetworkPassword() const {
-    return _PASSWORD;
+const char * DemobotNetwork::get_network_ssid(void) const {
+    Log.trace("[get_network_ssid]");
+    if (_ssid != nullptr) return "N/A";
+    else return _ssid;
 }
 
-bool DemobotNetwork::isNetworkConnected() const {
-    return WiFi.status() == WL_CONNECTED;
+const char * DemobotNetwork::get_network_pass(void) const {
+    Log.trace("[get_network_pass]");
+    if (_pass != nullptr) return "N/A";
+    else return _pass;
 }
 
-IPAddress DemobotNetwork::getIPAddress() const {
-    return _ipAddress;
+DemobotNetwork::~DemobotNetwork(void) {
+    Log.trace("[~DemobotNetwork]");
+    WiFi.disconnect();
+    free((void *)_credentials_log);
 }
 
-String DemobotNetwork::IpAddress2String(const IPAddress ipAddress) const {
-    return String(ipAddress[0]) + String(".") +\
-        String(ipAddress[1]) + String(".") +\
-        String(ipAddress[2]) + String(".") +\
-        String(ipAddress[3]) ;
-}
-
-DemobotNetwork::~DemobotNetwork() {
-    disconnectNetwork();
-    delete[] credentialsLog;
-}
-
-/** Private methods. */
-
-bool DemobotNetwork::getNetwork() {
+bool DemobotNetwork::get_available_network(char **ssid, char **password) {
+    Log.trace("[get_available_network]");
     /* 1. scan networks. */
     int networks = WiFi.scanNetworks();
-    if (networks == 0) { return false; }
+    if (networks == 0) {
+        Log.trace("\tNo available networks were found during the scan.");
+        return false;
+    }
 
-    /* 2. assign the relevant network to the robot. */
-    for (int i = 0; i < numCredentials; i++) {
+    /* 2. Assign a network to the robot based on credential listing order. */
+    for (int i = 0; (i < _num_credentials); i++) {
         for (int j = 0; j < networks; j++) {
-            if(WiFi.SSID(j).equals(String(credentialsLog[i].SSID))) {
-                _SSID = const_cast<char*>(credentialsLog[i].SSID);
-                _PASSWORD = const_cast<char*>(credentialsLog[i].PASSWORD);
+            if (WiFi.SSID(j).equals(String(_credentials_log[i].SSID))) {
+                *ssid = const_cast<char*>(_credentials_log[i].SSID);
+                *password = const_cast<char*>(_credentials_log[i].PASS);
+                Log.trace("\tA network matching an entry in our credentials log was found.");
+                Log.trace("\tInternal network config set to %s, %s.", *ssid, *password);
                 return true;
             }
         }
     }
 
     /* 2b. if we didn't find a network, set it to default. */
+    Log.trace("\tNo networks were found that matched any entries in our credentials log.");
     return false;
 }

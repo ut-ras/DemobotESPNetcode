@@ -1,111 +1,115 @@
 /**
- * File: DemobotClient.h
- * Author: Matthew Yu
- * Last Modified: 03/16/21
- * Project: Demobots General
- * Organization: UT IEEE RAS
- * Description: Implements definitions for the DemobotClient class, which
- * allows the ESP32 to send requests to a DemobotServer.
+ * @file DemobotClient.cpp
+ * @author Matthew Yu (matthewjkyu@gmail.com)
+ * @brief Manages cient communication between demobots.
+ * @version 0.2.0
+ * @date 2023-04-14
+ * @copyright Copyright (c) 2023
+ *
  */
-#include "DemobotClient.h"
+#include "DemobotClient.hpp"
+#include <ArduinoLog.h>
 
+DemobotClient::DemobotClient(const DemobotID id) {
+    Log.trace("[DemobotClient]");
 
-DemobotClient::DemobotClient() {
-    _request = NULL;
-}
-
-int DemobotClient::pingServer(const String url) {
-    /* Send a root level GET request to see if the server exists. */
-    bool isFinished = false;
-    int responseCode = -1;
-
-    /* Request must be aborted if it was previously generated, since successive
-     * calls to the same endpoint don't seem to ever close. */
-    if (_request != NULL) _request->abort();
-    else _request = new asyncHTTPrequest();
-
-    _request->onReadyStateChange(
-        [&responseCode, &isFinished](void *optParam, asyncHTTPrequest *request, int readyState) {
-            if (readyState == 4) {
-                isFinished = true;
-                responseCode = request->responseHTTPcode();
-            }
-        }
+    /* Set server ip based on robot type. */
+    switch(id) {
+        case DANCEBOT:
+            _ip = new IPAddress(192,168,2,1);
+            break;
+        case POLARGRAPH:
+            _ip = new IPAddress(192,168,2,2);
+            break;
+        case MARQUEE:
+            _ip = new IPAddress(192,168,2,3);
+            break;
+        case TOWER_OF_POWER:
+            _ip = new IPAddress(192,168,2,4);
+            break;
+        default:
+            _ip = new IPAddress(192,168,2,0);
+            break;
+    }
+    Log.trace(
+        "\tFor your robot, the server will be hosted at %p.",
+        *_ip
     );
-    if (_request->readyState() == 0 || _request->readyState() == 4) {
-        _request->open("GET", url.c_str());
-        _request->send();
-    }
 
-    while (!isFinished) delay(100);
-    return responseCode;
+    #ifdef SYNC
+    _client = new HTTPClient();
+    #elif
+    _client = new AsyncHttpClient(*_ip, 80);
+    _client->onResponse(response_handler);
+    _client->onData(data_handler);
+    _client->onError(error_handler);
+    #endif
 }
 
-void DemobotClient::sendGETRequest(
-    const String url,
-    const String keys[],
-    const String vals[],
-    const int argSize,
-    const httpRequestCallbackPtr_t handler) {
-    String queryPath = url;
-    queryPath += '?';
+bool DemobotClient::ping_server(void) {
+    Log.trace("[ping_server]");
+    if (_ip == nullptr) {
+        Log.trace("\tServer IP was improperly configured.");
+        return false;
+    }
 
-    /* Append keys and values to the path. */
-    for (int i = 0; i < argSize; i++) {
-        queryPath += keys[i];
-        queryPath += '=';
-        queryPath += vals[i];
-        if (i < (argSize - 1)) {
-            queryPath += '&';
+    /* Send a root level GET request to see if the server exists. */
+    String url = String("http://") + IpAddress2String(*_ip) + String(":80"); // TODO do not hardcode port
+    Log.trace("\tPinging our target server %s", url.c_str());
+
+    bool success = false;
+    #ifdef SYNC
+    _client->begin(url.c_str());
+    int http_code = _client->GET();
+    if (http_code > 0) {
+        Log.trace("\tGot http response code %i.", http_code);
+        if (http_code == HTTP_CODE_OK) {
+            String payload = _client->getString();
+            Log.trace("\tPayload %s.", payload.c_str());
+            success = true;
         }
+    } else {
+        Log.trace("\tBad response [%s].", _client->errorToString(http_code).c_str());
     }
+    _client->end();
+    #elif
+    _client->get(url);
+    /* TODO: block until response. */
+    #endif
 
-    /* Request must be aborted if it was previously generated, since successive
-     * calls to the same endpoint don't seem to ever close. */
-    if (_request != NULL) _request->abort();
-    else _request = new asyncHTTPrequest();
-
-    /* Set the response handler and send the request. */
-    _request->onReadyStateChange(handler);
-    if (_request->readyState() == 0 || _request->readyState() == 4) {
-        _request->open("GET", queryPath.c_str());
-        _request->send();
-    }
-}
-
-void DemobotClient::sendPOSTRequest(
-    const String url,
-    const String keys[],
-    const String vals[],
-    int argSize,
-    const httpRequestCallbackPtr_t handler) {
-    String data = "";
-
-    /* Append keys and values to the path. */
-    for (int i = 0; i < argSize; i++) {
-        data += keys[i];
-        data += '=';
-        data += vals[i];
-        if (i < (argSize - 1)) {
-            data += '&';
-        }
-    }
-
-    /* Request must be aborted if it was previously generated, since successive
-     * calls to the same endpoint don't seem to ever close. */
-    if (_request != NULL) _request->abort();
-    else _request = new asyncHTTPrequest();
-
-    /* Set the response handler and send the request. */
-    _request->onReadyStateChange(handler);
-    if (_request->readyState() == 0 || _request->readyState() == 4) {
-        _request->open("POST", url.c_str());
-        _request->setReqHeader("Content-Type", "application/x-www-form-urlencoded");
-        _request->setReqHeader("Content-Length", data.length());
-        _request->send(data);
-    }
+    return success;
 }
 
 DemobotClient::~DemobotClient() {
-    delete _request;
+    Log.trace("[~DemobotClient]");
+    if (_ip != nullptr) {
+        free(_ip);
+    }
+    if (_client != nullptr) {
+        free(_client);
+    }
+}
+
+#ifndef SYNC
+void DemobotClient::response_handler(Response response) {
+    Log.trace("[response_handler] Got response with status code %i.", response.statusCode);
+
+}
+
+void DemobotClient::data_handler(char *data, size_t len) {
+    Log.trace("[data_handler] Got data %s.", data);
+
+}
+
+void DemobotClient::error_handler(int error) {
+    Log.trace("[error_handler] Got error code %i.", error);
+
+}
+#endif
+
+String DemobotClient::IpAddress2String(const IPAddress ipAddress) const {
+    return String(ipAddress[0]) + String(".") +\
+        String(ipAddress[1]) + String(".") +\
+        String(ipAddress[2]) + String(".") +\
+        String(ipAddress[3]) ;
 }
