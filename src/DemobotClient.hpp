@@ -3,12 +3,13 @@
  * @author Matthew Yu (matthewjkyu@gmail.com)
  * @brief Manages cient communication between demobots.
  * @version 0.2.0
- * @date 2023-04-14
+ * @date 2023-04-20
  * @copyright Copyright (c) 2023
  *
  */
 #pragma once
 
+#include <ESPAsyncWebServer.h>
 #include <IPAddress.h>
 
 #define SYNC
@@ -21,31 +22,34 @@
 
 class DemobotClient {
     public:
-        enum DemobotID {
-            DANCEBOT,
-            POLARGRAPH,
-            MARQUEE,
-            TOWER_OF_POWER
-        };
+        /**
+         * @brief Construct a new Demobot Client object and captures the target
+         * IP address of the robot.
+         *
+         * @param ip Robot ip address.
+         */
+        DemobotClient(const IPAddress ip);
 
-        DemobotClient(const DemobotID id);
-
+        /**
+         * @brief Pings the root of the server looking for a 200 OK HTTP
+         * response. Blocking.
+         *
+         * @return true Positive 200 OK HTTP response.
+         * @return false Negative 200 OK HTTP response.
+         */
         bool ping_server(void);
 
-        // void sendGETRequest(
-        //     const char *endpoint,
-        //     const String keys[],
-        //     const String vals[],
-        //     const int argSize,
-        //     const httpRequestCallbackPtr_t handler);
+        bool send_HTTP_request(
+            const char *endpoint,
+            const WebRequestMethod mode,
+            const char *keys[],
+            const char *vals[],
+            const int num_args,
+            String *response);
 
-        // void sendPOSTRequest(
-        //     const char *endpoint,
-        //     const String keys[],
-        //     const String vals[],
-        //     const int argSize,
-        //     const httpRequestCallbackPtr_t handler);
-
+        /**
+         * @brief Destroy the Demobot Client object.
+         */
         ~DemobotClient();
 
     private:

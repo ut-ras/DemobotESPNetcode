@@ -3,7 +3,7 @@
  * @author Matthew Yu (matthewjkyu@gmail.com)
  * @brief Manages server communication between demobots.
  * @version 0.2.0
- * @date 2023-04-14
+ * @date 2023-04-20
  * @copyright Copyright (c) 2023
  *
  */
@@ -20,33 +20,18 @@ IPAddress subnet(255, 255, 255, 0);
 // IPAddress primary_dns(8, 8, 8, 8);
 // IPAddress secondary_dns(8, 8, 4, 4);
 
-DemobotServer::DemobotServer(const DemobotID id) {
+DemobotServer::DemobotServer(const IPAddress ip) {
     Log.trace("[DemobotServer]");
-    /* Set server ip based on robot type. */
-    switch(id) {
-        case DANCEBOT:
-            _ip = new IPAddress(192,168,2,1);
-            break;
-        case POLARGRAPH:
-            _ip = new IPAddress(192,168,2,2);
-            break;
-        case MARQUEE:
-            _ip = new IPAddress(192,168,2,3);
-            break;
-        case TOWER_OF_POWER:
-            _ip = new IPAddress(192,168,2,4);
-            break;
-        default:
-            _ip = new IPAddress(192,168,2,0);
-            break;
-    }
+
+    _ip = new IPAddress(ip);
+
     Log.trace(
         "\tFor your robot, the server will be hosted at %p.",
         *_ip
     );
 }
 
-DemobotServer::DemobotServer(const DemobotID id, const uint8_t port) : DemobotServer(id) {
+DemobotServer::DemobotServer(const IPAddress ip, const uint8_t port) : DemobotServer(ip) {
     /* Set server ip based on robot type. */
     _port = port;
 }
@@ -119,19 +104,11 @@ void DemobotServer::kill_server(void) {
     }
 }
 
-bool DemobotServer::add_server_GET_endpoint(const char *endpoint, serverCallbackPtr_t handler) {
+bool DemobotServer::add_server_route(const Route route) {
     Log.trace("[add_server_GET_endpoint]");
     if (_server != nullptr) {
-        _server->on(endpoint, HTTP_GET, handler);
-        return true;
-    }
-    return false;
-}
-
-bool DemobotServer::add_server_POST_endpoint(const char *endpoint, serverCallbackPtr_t handler) {
-    Log.trace("[add_server_POST_endpoint]");
-    if (_server != nullptr) {
-        _server->on(endpoint, HTTP_POST, handler);
+        Log.trace("[add_server_route] Adding endpoint %s", route.uri);
+        _server->on(route.uri, route.type, route.cb);
         return true;
     }
     return false;

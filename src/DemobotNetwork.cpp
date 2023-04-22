@@ -3,7 +3,7 @@
  * @author Matthew Yu (matthewjkyu@gmail.com)
  * @brief Manages network configuration for various Demobots.
  * @version 0.2.0
- * @date 2023-04-10
+ * @date 2023-04-20
  * @copyright Copyright (c) 2023
  *
  */
@@ -11,18 +11,16 @@
 #include <ArduinoLog.h>
 #include <WiFi.h>
 
-DemobotNetwork::DemobotNetwork(const char *demobot_name, DemobotID id) {
+DemobotNetwork::DemobotNetwork(const char *demobot_name) {
     Log.trace("[DemobotNetwork]");
     _credentials_log = new Credential[_num_credentials] {
+        Credential{"mono_no_aware", "mudkip27"},
         Credential{"Demobot", "Demobots1234"},
         Credential{"DemobotsNetwork", "Dem0b0tsRu1e!"},
-        Credential{"", ""},
         Credential{"", ""},
     };
 
     _demobot_name = const_cast<char*>(demobot_name);
-    Log.trace("\tHello robot %s (%u)!", _demobot_name, id);
-
     WiFi.setHostname(_demobot_name);
 
     /* Set internal SSID and password based on available networks. */
